@@ -597,3 +597,103 @@ input:checked + .slider:before { transform: translateX(22px); }
 .text-purple { color: var(--purple-accent); }
 .text-blue-light { color: #60a5fa; }
 .text-gray { color: var(--text-muted); }
+
+/* ================= RESPONSIVE MEDIA QUERIES (MOBILE & TABLET SUPPORT) ================= */
+
+/* Untuk Tablet & Layar Kecil (Max width: 1024px) */
+@media screen and (max-width: 1024px) {
+    .dashboard-container {
+        flex-direction: column;
+    }
+    
+    .sidebar {
+        width: 100vw;
+        height: 64px;
+        flex-direction: row;
+        justify-content: center;
+        padding: 0 10px;
+        border-right: none;
+        border-top: 1px solid var(--border-color);
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        z-index: 1000;
+        background-color: var(--bg-sidebar);
+    }
+
+    .nav-item {
+        width: 60px;
+        height: 50px;
+        font-size: 9px;
+        gap: 2px;
+    }
+
+    .nav-item i {
+        font-size: 16px;
+    }
+
+    .main-content {
+        height: calc(100vh - 64px);
+        padding: 15px;
+        overflow-y: auto;
+        padding-bottom: 80px; /* Jarak agar tidak tertutup sidebar bawah di HP */
+    }
+
+    .top-row {
+        grid-template-columns: 1fr;
+        height: auto;
+    }
+
+    .stat-cards-group, 
+    .toggle-cards-group {
+        grid-template-columns: 1fr;
+    }
+
+    .metrics-strip {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+    }
+
+    .metric-item {
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 10px;
+    }
+
+    .charts-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Untuk Smartphone (Max width: 640px) */
+@media screen and (max-width: 640px) {
+    .topbar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .header-status {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .stat-cards-group, 
+    .toggle-cards-group {
+        grid-template-columns: 1fr;
+    }
+
+    .metrics-strip {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .gauge-container {
+        width: 220px;
+        height: 220px;
+    }
+
+    .modal-content {
+        width: 95%;
+        padding: 12px;
+    }
+}
