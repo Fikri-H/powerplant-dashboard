@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hybrid Power Plant - Monitoring System</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js Core Library -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- HammerJS (Diperlukan oleh plugin zoom) -->
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    
+    <!-- Chart.js Zoom Plugin -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    
+    <!-- MQTT.js Library untuk Koneksi Cloud -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+
+    <!-- SheetJS Library untuk Export File Excel (.xlsx) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar Navbar -->
+        <aside class="sidebar">
+            <button class="nav-item active" data-page="dashboard">
+                <i class="fa-solid fa-house"></i>
+                <span>Dashboard</span>
+            </button>
+            <button class="nav-item" data-page="realtime">
+                <i class="fa-solid fa-chart-line"></i>
+                <span>Real-time Data</span>
+            </button>
+            <button class="nav-item" data-page="cells">
+                <i class="fa-solid fa-battery-three-quarters"></i>
+                <span>Cell Voltages</span>
+            </button>
+            <button class="nav-item" data-page="history">
+                <i class="fa-solid fa-file-excel"></i>
+                <span>Export Data</span>
+            </button>
+            <button class="nav-item" data-page="alarms">
+                <i class="fa-regular fa-bell"></i>
+                <span>Alarms</span>
+            </button>
+            <button class="nav-item" data-page="settings">
+                <i class="fa-solid fa-gear"></i>
+                <span>Settings</span>
+            </button>
+            <button class="nav-item" data-page="sysinfo">
+                <i class="fa-solid fa-circle-info"></i>
+                <span>System Info</span>
+            </button>
+        </aside>
+
+        <!-- Main Dashboard Content -->
+        <main class="main-content">
+            <!-- Header Topbar -->
+            <header class="topbar">
+                <div class="brand">
+                    <div class="logo-icon"><i class="fa-solid fa-bolt"></i></div>
+                    <div class="brand-text">
+                        <h2>HYBRID POWER PLANT</h2>
+                        <p>MONITORING SYSTEM</p>
+                    </div>
+                </div>
+
+                <div class="header-status">
+                    <div class="badge badge-dark" id="bms-status-badge">
+                        <i class="fa-solid fa-plug"></i> Connecting...
+                    </div>
+                    <div class="badge badge-dark" id="wifi-status-badge">
+                        <i class="fa-solid fa-wifi"></i> WiFi Active
+                    </div>
+                    <div class="time-widget">
+                        <span id="current-time">--:--:--</span>
+                        <small id="current-date">-- --- ----</small>
+                    </div>
+                </div>
+            </header>
+
+            <!-- ================= PAGE 1: DASHBOARD ================= -->
+            <section id="page-dashboard" class="page-view active">
+                <div class="dashboard-grid">
+                    <!-- Top Row: Gauge & Quick Stats -->
+                    <div class="top-row">
+                        <div class="card gauge-card">
+                            <div class="gauge-container">
+                                <canvas id="socGauge"></canvas>
+                                <div class="gauge-center-text">
+                                    <span class="label">SOC</span>
+                                    <h1 class="value" id="soc-value">--<small>%</small></h1>
+                                    <div class="badge-alert" id="soc-alert" style="display: none;">
+                                        <i class="fa-solid fa-circle-exclamation"></i> SOC Low
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="stats-container">
+                            <div class="stat-cards-group">
+                                <div class="card stat-card">
+                                    <div class="stat-icon green"><i class="fa-solid fa-v"></i></div>
+                                    <div class="stat-info">
+                                        <span class="label">Sum Voltage</span>
+                                        <h3 class="value" id="total-voltage-val">-- <small>V</small></h3>
+                                    </div>
+                                </div>
+                                <div class="card stat-card">
+                                    <div class="stat-icon blue"><i class="fa-solid fa-a"></i></div>
+                                    <div class="stat-info">
+                                        <span class="label">Current</span>
+                                        <h3 class="value" id="current-val">-- <small>A</small></h3>
+                                    </div>
+                                </div>
+                                <div class="card stat-card">
+                                    <div class="stat-icon purple"><i class="fa-solid fa-battery-quarter"></i></div>
+                                    <div class="stat-info">
+                                        <span class="label">Remaining Capacity</span>
+                                        <h3 class="value" id="capacity-val">-- <small>Ah</small></h3>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="toggle-cards-group">
+                                <div class="card toggle-card">
+                                    <div class="toggle-info">
+                                        <span>Chg MOS</span>
+                                        <strong id="chg-mos-status" class="text-gray">--</strong>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="chg-mos-toggle" disabled>
+                                        <span class="slider round"></span>
+                                    </label>
+                                </div>
+                                <div class="card toggle-card">
+                                    <div class="toggle-info">
+                                        <span>Dischg MOS</span>
+                                        <strong id="dischg-mos-status" class="text-gray">--</strong>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="dischg-mos-toggle" disabled>
+                                        <span class="slider round"></span>
+                                    </label>
+                                </div>
+                                <div class="card toggle-card">
+                                    <div class="toggle-info">
+                                        <span>Balance</span>
+                                        <strong id="balance-status" class="text-gray">--</strong>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="balance-toggle" disabled>
+                                        <span class="slider round"></span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="card metrics-strip">
+                                <div class="metric-item">
+                                    <i class="fa-solid fa-arrow-up text-green"></i>
+                                    <span class="label">Max Voltage</span>
+                                    <strong class="value" id="max-v-val">-- V</strong>
+                                </div>
+                                <div class="metric-item">
+                                    <i class="fa-solid fa-arrow-down text-blue"></i>
+                                    <span class="label">Min Voltage</span>
+                                    <strong class="value" id="min-v-val">-- V</strong>
+                                </div>
+                                <div class="metric-item">
+                                    <i class="fa-solid fa-wave-square text-cyan"></i>
+                                    <span class="label">Average Voltage</span>
+                                    <strong class="value" id="avg-v-val">-- V</strong>
+                                </div>
+                                <div class="metric-item">
+                                    <i class="fa-solid fa-triangle-exclamation text-orange"></i>
+                                    <span class="label">Delta V</span>
+                                    <strong class="value" id="delta-v-val">-- V</strong>
+                                </div>
+                                <div class="metric-item">
+                                    <i class="fa-solid fa-rotate text-blue-light"></i>
+                                    <span class="label">Cycles</span>
+                                    <strong class="value" id="cycles-val">--</strong>
+                                </div>
+                                <div class="metric-item">
+                                    <i class="fa-solid fa-bolt text-purple"></i>
+                                    <span class="label">Power</span>
+                                    <strong class="value" id="power-val">-- kW</strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= PAGE 2: REAL-TIME DATA ================= -->
+            <section id="page-realtime" class="page-view">
+                <div class="card charts-section">
+                    <div class="section-header">
+                        <h3><i class="fa-solid fa-chart-line"></i> REAL-TIME METRICS & GRAPHS</h3>
+                        <small class="text-green"><i class="fa-solid fa-rotate fa-spin"></i> Streaming Live Data (Drag / Scroll to View History)</small>
+                    </div>
+                    <div class="charts-grid">
+                        <!-- Voltage Chart Box -->
+                        <div class="chart-box">
+                            <div class="chart-header">
+                                <span>Voltage (V)</span>
+                                <div class="chart-controls">
+                                    <button class="btn-zoom" onclick="resetChartZoom('voltage')"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+                                    <button class="btn-zoom" onclick="openZoomModal('voltage')"><i class="fa-solid fa-expand"></i> Zoom</button>
+                                </div>
+                            </div>
+                            <div class="canvas-wrapper">
+                                <canvas id="voltageChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Current Chart Box -->
+                        <div class="chart-box">
+                            <div class="chart-header">
+                                <span>Current (A)</span>
+                                <div class="chart-controls">
+                                    <button class="btn-zoom" onclick="resetChartZoom('current')"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+                                    <button class="btn-zoom" onclick="openZoomModal('current')"><i class="fa-solid fa-expand"></i> Zoom</button>
+                                </div>
+                            </div>
+                            <div class="canvas-wrapper">
+                                <canvas id="currentChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Temperature Chart Box -->
+                        <div class="chart-box">
+                            <div class="chart-header">
+                                <span>Temperature (°C)</span>
+                                <div class="chart-controls">
+                                    <button class="btn-zoom" onclick="resetChartZoom('temp')"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+                                    <button class="btn-zoom" onclick="openZoomModal('temp')"><i class="fa-solid fa-expand"></i> Zoom</button>
+                                </div>
+                            </div>
+                            <div class="canvas-wrapper">
+                                <canvas id="tempChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Power Chart Box -->
+                        <div class="chart-box">
+                            <div class="chart-header">
+                                <span>Power (W)</span>
+                                <div class="chart-controls">
+                                    <button class="btn-zoom" onclick="resetChartZoom('power')"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+                                    <button class="btn-zoom" onclick="openZoomModal('power')"><i class="fa-solid fa-expand"></i> Zoom</button>
+                                </div>
+                            </div>
+                            <div class="canvas-wrapper">
+                                <canvas id="powerChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= PAGE 3: CELL VOLTAGES ================= -->
+            <section id="page-cells" class="page-view">
+                <div class="card">
+                    <div class="section-header">
+                        <h3><i class="fa-solid fa-battery-three-quarters"></i> INDIVIDUAL CELL STATUS</h3>
+                    </div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Cell No</th>
+                                <th>Voltage (V)</th>
+                                <th>Level Indicator</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cell-table-body">
+                            <tr>
+                                <td colspan="4" class="text-center text-gray">Menunggu data cell dari BMS...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ================= PAGE 4: HISTORY & EXPORT DATA ================= -->
+            <section id="page-history" class="page-view">
+                <div class="card">
+                    <div class="section-header">
+                        <h3><i class="fa-solid fa-file-excel"></i> DATA TELEMETRY LOGS & EXPORT</h3>
+                        <div class="action-buttons">
+                            <button class="btn-primary" id="btn-export-excel" style="padding: 6px 14px; margin-right: 8px;">
+                                <i class="fa-solid fa-file-arrow-down"></i> Download Excel (.xlsx)
+                            </button>
+                            <button class="btn-clear-logs" id="btn-clear-logs">
+                                <i class="fa-solid fa-trash"></i> Clear Logs
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table" id="telemetry-table">
+                            <thead>
+                                <tr>
+                                    <th>Waktu (Timestamp)</th>
+                                    <th>Sum Voltage (V)</th>
+                                    <th>Current (A)</th>
+                                    <th>Power (kW)</th>
+                                    <th>SOC (%)</th>
+                                    <th>Temp (°C)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-log-tbody">
+                                <tr>
+                                    <td colspan="6" class="text-center text-gray">Menunggu data telemetri ESPHome...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= PAGE 5: ALARMS ================= -->
+            <section id="page-alarms" class="page-view">
+                <div class="card">
+                    <div class="section-header">
+                        <h3><i class="fa-regular fa-bell"></i> SYSTEM ALARMS & WARNINGS</h3>
+                    </div>
+                    <div class="alarm-list" id="alarm-container">
+                        <div class="alarm-item text-gray">
+                            <i class="fa-solid fa-spinner fa-spin"></i> Fetching system status...
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= PAGE 6: SETTINGS ================= -->
+            <section id="page-settings" class="page-view">
+                <div class="card">
+                    <div class="section-header">
+                        <h3><i class="fa-solid fa-gear"></i> ESPHOME & BMS CONFIGURATION</h3>
+                    </div>
+                    <form id="settings-form" class="settings-form" onsubmit="event.preventDefault();">
+                        <div class="form-group">
+                            <label for="setting-host">ESPHome Host / IP Address:</label>
+                            <input type="text" id="setting-host" value="http://192.168.0.116" class="input-field" placeholder="Contoh: http://192.168.0.116">
+                            <small class="field-hint">Alamat IP atau Domain mDNS dari ESP32 kamu.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-interval">Fetch Interval (ms / milidetik):</label>
+                            <input type="number" id="setting-interval" value="3000" min="500" step="100" class="input-field">
+                            <small class="field-hint">Interval request data live ke ESP32. (Default: <b>3000 ms = 3 detik</b>)</small>
+                        </div>
+                        
+                        <!-- Pilihan Interval Simpan Data Ke Log Table -->
+                        <div class="form-group">
+                            <label for="setting-log-interval">History Logging Interval:</label>
+                            <select id="setting-log-interval" class="input-field">
+                                <option value="1">Setiap Fetch (Sesuai Interval Fetch)</option>
+                                <option value="5">Setiap 5 Detik</option>
+                                <option value="10">Setiap 10 Detik</option>
+                                <option value="30">Setiap 30 Detik</option>
+                                <option value="60" selected>Setiap 1 Menit</option>
+                                <option value="300">Setiap 5 Menit</option>
+                            </select>
+                            <small class="field-hint">Mengatur seberapa sering data disimpan ke tabel riwayat (Export Excel).</small>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="button" id="btn-save-settings" class="btn-primary">
+                                <i class="fa-solid fa-floppy-disk"></i> Simpan Pengaturan
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- ================= PAGE 7: SYSTEM INFO ================= -->
+            <section id="page-sysinfo" class="page-view">
+                <div class="card">
+                    <div class="section-header">
+                        <h3><i class="fa-solid fa-circle-info"></i> SYSTEM INFORMATION</h3>
+                    </div>
+                    <div class="info-list">
+                        <p><strong>System Name:</strong> Hybrid Power Plant BMS</p>
+                        <p><strong>Hardware:</strong> ESP32 + Daly BMS (BLE/UART)</p>
+                        <p><strong>Protocol:</strong> ESPHome Native Web API</p>
+                        <p><strong>Version:</strong> v1.0.0-release</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- ================= POPUP MODAL ZOOM GRAFIK ================= -->
+    <div id="chartModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalChartTitle">Detail Grafik</h3>
+                <button class="btn-close-modal" onclick="closeZoomModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="canvas-wrapper">
+                    <canvas id="zoomedChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
