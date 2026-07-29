@@ -356,20 +356,6 @@
                             <small class="field-hint">Interval request data live ke ESP32. (Default: <b>3000 ms = 3 detik</b>)</small>
                         </div>
                         
-                        <!-- Pilihan Interval Simpan Data Ke Log Table -->
-                        <div class="form-group">
-                            <label for="setting-log-interval">History Logging Interval:</label>
-                            <select id="setting-log-interval" class="input-field">
-                                <option value="1">Setiap Fetch (Sesuai Interval Fetch)</option>
-                                <option value="5">Setiap 5 Detik</option>
-                                <option value="10">Setiap 10 Detik</option>
-                                <option value="30">Setiap 30 Detik</option>
-                                <option value="60" selected>Setiap 1 Menit</option>
-                                <option value="300">Setiap 5 Menit</option>
-                            </select>
-                            <small class="field-hint">Mengatur seberapa sering data disimpan ke tabel riwayat (Export Excel).</small>
-                        </div>
-
                         <div class="form-actions">
                             <button type="button" id="btn-save-settings" class="btn-primary">
                                 <i class="fa-solid fa-floppy-disk"></i> Simpan Pengaturan
