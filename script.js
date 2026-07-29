@@ -290,7 +290,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // --------------------------------------
     function appendTelemetryRow(totalV, curr, pwr, socVal, tmp) {
         const nowTime = Date.now();
-        if (nowTime - lastLogTime < FETCH_INTERVAL) return;
+        // Membaca interval terbaru secara dinamis dari localStorage
+        const currentInterval = parseInt(localStorage.getItem('mqtt_interval')) || 3000;
+        
+        if (nowTime - lastLogTime < currentInterval) return;
         lastLogTime = nowTime;
 
         const tbody = document.getElementById('history-log-tbody');
@@ -581,7 +584,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // --------------------------------------
     // 9. Settings Handler (MQTT Broker & Interval Config)
     // --------------------------------------
-    // Mendukung berbagai kemungkinan ID pada input HTML (setting-host, setting-broker, atau input teks pertama)
     const inputEspHost = document.getElementById('setting-host') || document.getElementById('setting-broker') || document.querySelector('#page-settings input[type="text"], #page-settings input:not([type="number"])');
     const inputFetchInterval = document.getElementById('setting-interval');
     const btnSaveSettings = document.getElementById('btn-save-settings');
