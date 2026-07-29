@@ -1,7 +1,11 @@
 // ==========================================
 // KONFIGURASI GLOBAL MQTT & DEFAULT
 // ==========================================
-const MQTT_BROKER = "wss://broker.hivemq.com:8884/mqtt";
+// Ambil konfigurasi tersimpan dari localStorage jika ada, atau gunakan default
+const DEFAULT_MQTT_BROKER = "wss://broker.hivemq.com:8884/mqtt";
+let MQTT_BROKER = localStorage.getItem('mqtt_broker') || DEFAULT_MQTT_BROKER;
+let FETCH_INTERVAL = localStorage.getItem('mqtt_interval') || "Real-time MQTT";
+
 const TOPIC_PREFIX = "hybrid_power_polines";
 
 let client = null;
@@ -463,7 +467,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const now = new Date();
         const currentTimeStr = now.toTimeString().split(' ')[0];
 
-        // Jika data berupa string teks biasa (misal: "online", "offline"), abaikan proses telemetri
         if (typeof data === 'string') {
             console.log(`Info teks dari topik [${topic}]:`, data);
             return;
@@ -487,7 +490,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const dischgState = data.dischg_mos ?? data.discharging ?? null;
             const balState = data.balance_status ?? data.balancer ?? null;
 
-            // SIMPAN KE RIWAYAT UTAMA (allHistory)
             allHistory.labels.push(currentTimeStr);
             allHistory.voltage.push(totalVoltage || 0);
             allHistory.current.push(current || 0);
@@ -502,13 +504,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 allHistory.power.shift();
             }
 
-            // UPDATE GRAFIK DASHBOARD
             updateDashboardChart(voltageChart, allHistory.labels, allHistory.voltage);
             updateDashboardChart(currentChart, allHistory.labels, allHistory.current);
             updateDashboardChart(tempChart, allHistory.labels, allHistory.temp);
             updateDashboardChart(powerChart, allHistory.labels, allHistory.power);
 
-            // Update SOC Gauge
             const socEl = document.getElementById('soc-value');
             const socAlertEl = document.getElementById('soc-alert');
             if (soc !== null && !isNaN(soc)) {
@@ -523,7 +523,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (socAlertEl) socAlertEl.style.display = isLow ? 'inline-flex' : 'none';
             }
 
-            // Update Metrics Cards Text
             if (totalVoltage !== null && !isNaN(totalVoltage)) {
                 const el = document.getElementById('total-voltage-val');
                 if (el) el.innerHTML = `${totalVoltage.toFixed(1)} <small>V</small>`;
@@ -541,10 +540,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (el) el.innerText = `${(power / 1000).toFixed(2)} kW`;
             }
 
-            // Tambahkan baris ke Log Telemetri
             appendTelemetryRow(totalVoltage, current, power, soc, temp1);
 
-            // Update Metrics Strip
             const setInnerText = (id, val) => {
                 const el = document.getElementById(id);
                 if (el) el.innerText = val;
@@ -555,7 +552,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (deltaV !== null && !isNaN(deltaV)) setInnerText('delta-v-val', `${deltaV.toFixed(3)} V`);
             if (cycles !== null && !isNaN(cycles)) setInnerText('cycles-val', `${cycles}`);
 
-            // Update Switches State
             const updateSwitch = (statusElId, toggleElId, state) => {
                 const statusEl = document.getElementById(statusElId);
                 const toggleEl = document.getElementById(toggleElId);
@@ -609,12 +605,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const inputFetchInterval = document.getElementById('setting-interval');
     const btnSaveSettings = document.getElementById('btn-save-settings');
 
+    // Masukkan nilai saat ini ke form input pengaturan
     if (inputEspHost) inputEspHost.value = MQTT_BROKER;
-    if (inputFetchInterval) inputFetchInterval.value = "Real-time MQTT";
+    if (inputFetchInterval) inputFetchInterval.value = FETCH_INTERVAL;
 
     if (btnSaveSettings) {
         btnSaveSettings.addEventListener('click', () => {
-            alert('Pengaturan MQTT berhasil disimpan!');
+            const newHost = inputEspHost ? inputEspHost.value.trim() : "";
+            const newInterval = inputFetchInterval ? inputFetchInterval.value : "";
+
+            if (newHost) {
+                // Simpan ke localStorage
+                localStorage.setItem('mqtt_broker', newHost);
+                localStorage.setItem('mqtt_interval', newInterval);
+
+                alert('Pengaturan MQTT berhasil disimpan! Halaman akan dimuat ulang untuk menerapkan koneksi baru.');
+                
+                // Refresh halaman agar koneksi terhubung ke broker baru secara otomatis
+                location.reload();
+            } else {
+                alert('Host/Broker MQTT tidak boleh kosong!');
+            }
         });
     }
 
