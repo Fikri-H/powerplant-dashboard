@@ -3,12 +3,12 @@
 // ==========================================
 const DEFAULT_MQTT_BROKER = "wss://broker.hivemq.com:8884/mqtt";
 let MQTT_BROKER = localStorage.getItem('mqtt_broker') || DEFAULT_MQTT_BROKER;
-let FETCH_INTERVAL = parseInt(localStorage.getItem('mqtt_interval')) || 3000; // Default 3000 ms (3 detik)
+let FETCH_INTERVAL = parseInt(localStorage.getItem('mqtt_interval')) || 3000;
 
 const TOPIC_PREFIX = "hybrid_power_polines";
 
 let client = null;
-let lastLogTime = 0; // Throttle untuk riwayat logging berdasarkan interval
+let lastLogTime = 0;
 
 const allHistory = {
     labels: [],
@@ -581,7 +581,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --------------------------------------
     // 9. Settings Handler (MQTT Broker & Interval Config)
     // --------------------------------------
-    const inputEspHost = document.getElementById('setting-host');
+    // Mendukung berbagai kemungkinan ID pada input HTML (setting-host, setting-broker, atau input teks pertama)
+    const inputEspHost = document.getElementById('setting-host') || document.getElementById('setting-broker') || document.querySelector('#page-settings input[type="text"], #page-settings input:not([type="number"])');
     const inputFetchInterval = document.getElementById('setting-interval');
     const btnSaveSettings = document.getElementById('btn-save-settings');
 
