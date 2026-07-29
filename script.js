@@ -1,16 +1,15 @@
 // ==========================================
 // KONFIGURASI GLOBAL MQTT & DEFAULT
 // ==========================================
-// Ambil konfigurasi tersimpan dari localStorage jika ada, atau gunakan default
 const DEFAULT_MQTT_BROKER = "wss://broker.hivemq.com:8884/mqtt";
 let MQTT_BROKER = localStorage.getItem('mqtt_broker') || DEFAULT_MQTT_BROKER;
-let FETCH_INTERVAL = localStorage.getItem('mqtt_interval') || "Real-time MQTT";
+let FETCH_INTERVAL = parseInt(localStorage.getItem('mqtt_interval')) || 3000; // Default 3000 ms (3 detik)
 
 const TOPIC_PREFIX = "hybrid_power_polines";
 
 let client = null;
+let lastLogTime = 0; // Throttle untuk riwayat logging berdasarkan interval
 
-// Menampung SELURUH riwayat data (supaya mode Zoom bisa digeser/pan ke belakang)
 const allHistory = {
     labels: [],
     voltage: [],
@@ -19,10 +18,9 @@ const allHistory = {
     power: []
 };
 
-const MAX_DASHBOARD_POINTS = 12; // Titik data yang tampil di grafik kecil dashboard
-const MAX_HISTORY_LIMIT = 1000;  // Batas riwayat simpan di memori browser
+const MAX_DASHBOARD_POINTS = 12;
+const MAX_HISTORY_LIMIT = 1000;
 
-// Register Plugin Zoom Chart.js jika tersedia
 if (typeof ChartZoom !== 'undefined') {
     Chart.register(ChartZoom);
 }
@@ -104,7 +102,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Gauge Chart (SOC)
     const gaugeCanvas = document.getElementById('socGauge');
     let socGauge = null;
     if (gaugeCanvas) {
@@ -130,7 +127,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Line Charts Generator
     const createLineChart = (canvasId, color) => {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return null;
@@ -164,7 +160,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --------------------------------------
-    // 4. Modal Zoom & Pan Logic (Grip / Drag)
+    // 4. Modal Zoom & Pan Logic
     // --------------------------------------
     const modalOverlay = document.getElementById('chartModal');
     const modalTitle = document.getElementById('modalChartTitle');
@@ -195,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
             modalChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: [...allHistory.labels], // Seluruh jam riwayat
+                    labels: [...allHistory.labels],
                     datasets: [{
                         label: target.title,
                         data: [...allHistory[target.dataKey]],
@@ -213,21 +209,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     plugins: {
                         legend: { display: false },
                         zoom: {
-                            pan: {
-                                enabled: true, // Izinkan Geser/Drag/Pan
-                                mode: 'x'
-                            },
-                            zoom: {
-                                wheel: { enabled: true },
-                                pinch: { enabled: true },
-                                mode: 'x'
-                            }
+                            pan: { enabled: true, mode: 'x' },
+                            zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
                         }
                     }
                 }
             });
 
-            // Fokuskan tampilan ke titik data paling baru
             const totalPoints = allHistory.labels.length;
             if (totalPoints > MAX_DASHBOARD_POINTS) {
                 modalChartInstance.zoomScale('x', { 
@@ -301,6 +289,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // 6. History Logger & Telemetry Log Helper
     // --------------------------------------
     function appendTelemetryRow(totalV, curr, pwr, socVal, tmp) {
+        const nowTime = Date.now();
+        // Cek apakah sudah waktunya mencatat log berdasarkan FETCH_INTERVAL dari input sidebar
+        if (nowTime - lastLogTime < FETCH_INTERVAL) return;
+        lastLogTime = nowTime;
+
         const tbody = document.getElementById('history-log-tbody');
         if (!tbody) return;
 
@@ -369,8 +362,6 @@ document.addEventListener('DOMContentLoaded', () => {
             bmsBadge.className = "badge badge-dark";
         }
 
-        console.log("Connecting to MQTT broker:", MQTT_BROKER);
-
         const options = {
             clientId: 'polines_hybrid_client_' + Math.random().toString(16).substring(2, 8),
             clean: true,
@@ -381,7 +372,6 @@ document.addEventListener('DOMContentLoaded', () => {
         client = mqtt.connect(MQTT_BROKER, options);
 
         client.on("connect", () => {
-            console.log("Connected to MQTT Broker successfully!");
             if (bmsBadge) {
                 bmsBadge.style.backgroundColor = '#16a34a';
                 bmsBadge.style.color = '#ffffff';
@@ -396,15 +386,10 @@ document.addEventListener('DOMContentLoaded', () => {
             ];
 
             client.subscribe(topics, (err) => {
-                if (!err) {
-                    console.log("Subscribed to MQTT topics:", topics);
-                } else {
-                    console.error("MQTT Subscription failed:", err);
-                }
+                if (err) console.error("MQTT Subscription failed:", err);
             });
         });
 
-        // Penanganan Pesan Masuk dengan proteksi string mentah
         client.on("message", (topic, payload) => {
             const payloadStr = payload.toString();
             let data = null;
@@ -412,14 +397,13 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 data = JSON.parse(payloadStr);
             } catch (e) {
-                data = payloadStr; // Tangkap teks biasa (seperti "online") tanpa error
+                data = payloadStr;
             }
 
             handleIncomingMQTTData(topic, data);
         });
 
         client.on("error", (err) => {
-            console.error("MQTT Connection Error:", err);
             updateDisconnectedStatus(bmsBadge);
         });
 
@@ -467,10 +451,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const now = new Date();
         const currentTimeStr = now.toTimeString().split(' ')[0];
 
-        if (typeof data === 'string') {
-            console.log(`Info teks dari topik [${topic}]:`, data);
-            return;
-        }
+        if (typeof data === 'string') return;
 
         if (topic.includes("telemetry") || topic.includes("status")) {
             const soc = data.soc ?? data.state_of_charge ?? 0;
@@ -599,36 +580,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --------------------------------------
-    // 9. Settings Handler (MQTT Broker Config)
+    // 9. Settings Handler (MQTT Broker & Interval Config)
     // --------------------------------------
     const inputEspHost = document.getElementById('setting-host');
     const inputFetchInterval = document.getElementById('setting-interval');
     const btnSaveSettings = document.getElementById('btn-save-settings');
 
-    // Masukkan nilai saat ini ke form input pengaturan
     if (inputEspHost) inputEspHost.value = MQTT_BROKER;
     if (inputFetchInterval) inputFetchInterval.value = FETCH_INTERVAL;
 
     if (btnSaveSettings) {
         btnSaveSettings.addEventListener('click', () => {
             const newHost = inputEspHost ? inputEspHost.value.trim() : "";
-            const newInterval = inputFetchInterval ? inputFetchInterval.value : "";
+            const newIntervalVal = inputFetchInterval ? parseInt(inputFetchInterval.value) : NaN;
 
-            if (newHost) {
-                // Simpan ke localStorage
-                localStorage.setItem('mqtt_broker', newHost);
-                localStorage.setItem('mqtt_interval', newInterval);
-
-                alert('Pengaturan MQTT berhasil disimpan! Halaman akan dimuat ulang untuk menerapkan koneksi baru.');
-                
-                // Refresh halaman agar koneksi terhubung ke broker baru secara otomatis
-                location.reload();
-            } else {
+            if (!newHost) {
                 alert('Host/Broker MQTT tidak boleh kosong!');
+                return;
             }
+
+            if (isNaN(newIntervalVal) || newIntervalVal <= 0) {
+                alert('Fetch Interval harus berupa angka milidetik yang valid (contoh: 3000)!');
+                return;
+            }
+
+            localStorage.setItem('mqtt_broker', newHost);
+            localStorage.setItem('mqtt_interval', newIntervalVal);
+
+            alert('Pengaturan berhasil disimpan! Halaman akan dimuat ulang.');
+            location.reload();
         });
     }
 
-    // Inisialisasi Jalankan Koneksi MQTT
     initMQTTConnection();
 });
