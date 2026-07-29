@@ -290,7 +290,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // --------------------------------------
     function appendTelemetryRow(totalV, curr, pwr, socVal, tmp) {
         const nowTime = Date.now();
-        // Cek apakah sudah waktunya mencatat log berdasarkan FETCH_INTERVAL dari input sidebar
         if (nowTime - lastLogTime < FETCH_INTERVAL) return;
         lastLogTime = nowTime;
 
@@ -607,7 +606,7 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('mqtt_broker', newHost);
             localStorage.setItem('mqtt_interval', newIntervalVal);
 
-            alert('Pengaturan berhasil disimpan! Halaman akan dimuat ulang.');
+            alert('Pengaturan berhasil disimpan! Halaman akan memuat ulang.');
             location.reload();
         });
     }
