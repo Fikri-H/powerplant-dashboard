@@ -1,13 +1,28 @@
 // ==========================================
-// KONFIGURASI GLOBAL MQTT & DEFAULT
+// IMPORT & KONFIGURASI FIREBASE (MODULE FORMAT)
 // ==========================================
-const DEFAULT_MQTT_BROKER = "wss://broker.hivemq.com:8884/mqtt";
-let MQTT_BROKER = localStorage.getItem('mqtt_broker') || DEFAULT_MQTT_BROKER;
-let FETCH_INTERVAL = parseInt(localStorage.getItem('mqtt_interval')) || 3000;
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, onValue, set } from "firebase/database";
+import { getAnalytics } from "firebase/analytics";
 
-const TOPIC_PREFIX = "hybrid_power_polines";
+const firebaseConfig = {
+    apiKey: "AIzaSyC4izgVuH2m1H8iBAN_1xfKdFEQBGegPAE",
+    authDomain: "green-power-plant-fa8d6.firebaseapp.com",
+    databaseURL: "https://green-power-plant-fa8d6-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "green-power-plant-fa8d6",
+    storageBucket: "green-power-plant-fa8d6.firebasestorage.app",
+    messagingSenderId: "79926046540",
+    appId: "1:79926046540:web:3c9bb39a1da8bb2ad269e9",
+    measurementId: "G-DDY402C7RC"
+};
 
-let client = null;
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const analytics = getAnalytics(app);
+
+// Interval & Variabel Global
+let FETCH_INTERVAL = parseInt(localStorage.getItem('db_interval')) || 3000;
 let lastLogTime = 0;
 
 const allHistory = {
@@ -247,10 +262,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         let rowsHtml = '';
-        cellsData.forEach((voltage, idx) => {
+        const cellsArray = Array.isArray(cellsData) ? cellsData : Object.values(cellsData);
+
+        cellsArray.forEach((voltage, idx) => {
             const cellNum = idx + 1;
             const validVoltage = (voltage !== null && !isNaN(voltage));
-            const displayV = validVoltage ? voltage.toFixed(3) : '--';
+            const displayV = validVoltage ? Number(voltage).toFixed(3) : '--';
             
             let percentage = 0;
             if (validVoltage) {
@@ -290,8 +307,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --------------------------------------
     function appendTelemetryRow(totalV, curr, pwr, socVal, tmp) {
         const nowTime = Date.now();
-        // Membaca interval terbaru secara dinamis dari localStorage
-        const currentInterval = parseInt(localStorage.getItem('mqtt_interval')) || 3000;
+        const currentInterval = parseInt(localStorage.getItem('db_interval')) || 3000;
         
         if (nowTime - lastLogTime < currentInterval) return;
         lastLogTime = nowTime;
@@ -310,11 +326,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const row = document.createElement('tr');
         row.innerHTML = `
             <td>${timestamp}</td>
-            <td>${totalV !== null && !isNaN(totalV) ? totalV.toFixed(2) : '--'}</td>
-            <td>${curr !== null && !isNaN(curr) ? curr.toFixed(2) : '--'}</td>
+            <td>${totalV !== null && !isNaN(totalV) ? Number(totalV).toFixed(2) : '--'}</td>
+            <td>${curr !== null && !isNaN(curr) ? Number(curr).toFixed(2) : '--'}</td>
             <td>${pwr !== null && !isNaN(pwr) ? (pwr / 1000).toFixed(3) : '--'}</td>
-            <td>${socVal !== null && !isNaN(socVal) ? socVal.toFixed(1) : '--'}</td>
-            <td>${tmp !== null && !isNaN(tmp) ? tmp.toFixed(1) : '--'}</td>
+            <td>${socVal !== null && !isNaN(socVal) ? Number(socVal).toFixed(1) : '--'}</td>
+            <td>${tmp !== null && !isNaN(tmp) ? Number(tmp).toFixed(1) : '--'}</td>
         `;
 
         tbody.prepend(row);
@@ -355,62 +371,36 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --------------------------------------
-    // 7. MQTT Connection & Publisher Handler
+    // 7. Firebase Real-Time Listeners & Publisher Handler
     // --------------------------------------
-    function initMQTTConnection() {
+    function initFirebaseListeners() {
         const bmsBadge = document.getElementById('bms-status-badge');
         if (bmsBadge) {
-            bmsBadge.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Connecting...`;
-            bmsBadge.className = "badge badge-dark";
+            bmsBadge.style.backgroundColor = '#16a34a';
+            bmsBadge.style.color = '#ffffff';
+            bmsBadge.innerHTML = `<i class="fa-solid fa-plug"></i> Connected (Firebase)`;
         }
 
-        const options = {
-            clientId: 'polines_hybrid_client_' + Math.random().toString(16).substring(2, 8),
-            clean: true,
-            connectTimeout: 4000,
-            reconnectPeriod: 5000,
-        };
+        const telemetryRef = ref(db, 'hybrid_power_polines/telemetry');
+        const cellsRef = ref(db, 'hybrid_power_polines/cells');
+        const alarmsRef = ref(db, 'hybrid_power_polines/alarms');
 
-        client = mqtt.connect(MQTT_BROKER, options);
-
-        client.on("connect", () => {
-            if (bmsBadge) {
-                bmsBadge.style.backgroundColor = '#16a34a';
-                bmsBadge.style.color = '#ffffff';
-                bmsBadge.innerHTML = `<i class="fa-solid fa-plug"></i> Connected`;
-            }
-
-            const topics = [
-                `${TOPIC_PREFIX}/status`,
-                `${TOPIC_PREFIX}/telemetry`,
-                `${TOPIC_PREFIX}/cells`,
-                `${TOPIC_PREFIX}/alarms`
-            ];
-
-            client.subscribe(topics, (err) => {
-                if (err) console.error("MQTT Subscription failed:", err);
-            });
-        });
-
-        client.on("message", (topic, payload) => {
-            const payloadStr = payload.toString();
-            let data = null;
-
-            try {
-                data = JSON.parse(payloadStr);
-            } catch (e) {
-                data = payloadStr;
-            }
-
-            handleIncomingMQTTData(topic, data);
-        });
-
-        client.on("error", (err) => {
+        onValue(telemetryRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) handleTelemetryData(data);
+        }, (error) => {
+            console.error("Firebase Telemetry Error:", error);
             updateDisconnectedStatus(bmsBadge);
         });
 
-        client.on("offline", () => {
-            updateDisconnectedStatus(bmsBadge);
+        onValue(cellsRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) renderCellTable(data);
+        });
+
+        onValue(alarmsRef, (snapshot) => {
+            const data = snapshot.val();
+            handleAlarmData(data);
         });
     }
 
@@ -422,22 +412,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function sendMQTTCommand(subTopic, turnOn) {
-        if (client && client.connected) {
-            const payload = JSON.stringify({ state: turnOn ? "ON" : "OFF" });
-            client.publish(`${TOPIC_PREFIX}/command/${subTopic}`, payload, { qos: 0 }, (err) => {
-                if (err) console.error(`Gagal mengirim perintah MQTT ke ${subTopic}:`, err);
+    function sendFirebaseCommand(subTopicName, turnOn) {
+        const cmdRef = ref(db, `hybrid_power_polines/command/${subTopicName}`);
+        set(cmdRef, { state: turnOn ? "ON" : "OFF", timestamp: Date.now() })
+            .then(() => {
+                console.log(`Perintah ${subTopicName} berhasil dikirim ke Firebase:`, turnOn ? "ON" : "OFF");
+            })
+            .catch((err) => {
+                console.error(`Gagal mengirim perintah Firebase ke ${subTopicName}:`, err);
             });
-        } else {
-            console.warn("MQTT belum terhubung! Perintah tidak dapat dikirim.");
-        }
     }
 
     const bindSwitchEvent = (elementId, subTopicName) => {
         const toggleEl = document.getElementById(elementId);
         if (toggleEl) {
             toggleEl.addEventListener('change', (e) => {
-                sendMQTTCommand(subTopicName, e.target.checked);
+                sendFirebaseCommand(subTopicName, e.target.checked);
             });
         }
     };
@@ -447,172 +437,156 @@ document.addEventListener('DOMContentLoaded', () => {
     bindSwitchEvent('balance-toggle', 'balancer');
 
     // --------------------------------------
-    // 8. Main Data Update Handler (From MQTT)
+    // 8. Main Data Update Handler (From Firebase)
     // --------------------------------------
-    function handleIncomingMQTTData(topic, data) {
+    function handleTelemetryData(data) {
         const now = new Date();
         const currentTimeStr = now.toTimeString().split(' ')[0];
 
-        if (typeof data === 'string') return;
+        const soc = data.soc ?? data.state_of_charge ?? 0;
+        const totalVoltage = data.total_voltage ?? data.voltage ?? 0;
+        const current = data.current ?? 0;
+        const power = data.power ?? (totalVoltage * current);
+        const capacity = data.capacity ?? data.capacity_remaining ?? 0;
+        
+        const maxV = data.max_cell_voltage ?? null;
+        const minV = data.min_cell_voltage ?? null;
+        const avgV = data.avg_cell_voltage ?? data.average_cell_voltage ?? null;
+        const deltaV = data.delta_cell_voltage ?? null;
+        const cycles = data.charging_cycles ?? null;
+        const temp1 = data.temperature ?? data.temp ?? data.temperature_1 ?? 0;
 
-        if (topic.includes("telemetry") || topic.includes("status")) {
-            const soc = data.soc ?? data.state_of_charge ?? 0;
-            const totalVoltage = data.total_voltage ?? data.voltage ?? 0;
-            const current = data.current ?? 0;
-            const power = data.power ?? (totalVoltage * current);
-            const capacity = data.capacity ?? data.capacity_remaining ?? 0;
-            
-            const maxV = data.max_cell_voltage ?? null;
-            const minV = data.min_cell_voltage ?? null;
-            const avgV = data.avg_cell_voltage ?? data.average_cell_voltage ?? null;
-            const deltaV = data.delta_cell_voltage ?? null;
-            const cycles = data.charging_cycles ?? null;
-            const temp1 = data.temperature ?? data.temp ?? data.temperature_1 ?? 0;
+        const chgState = data.chg_mos ?? data.charging ?? null;
+        const dischgState = data.dischg_mos ?? data.discharging ?? null;
+        const balState = data.balance_status ?? data.balancer ?? null;
 
-            const chgState = data.chg_mos ?? data.charging ?? null;
-            const dischgState = data.dischg_mos ?? data.discharging ?? null;
-            const balState = data.balance_status ?? data.balancer ?? null;
+        allHistory.labels.push(currentTimeStr);
+        allHistory.voltage.push(totalVoltage || 0);
+        allHistory.current.push(current || 0);
+        allHistory.temp.push(temp1 || 0);
+        allHistory.power.push(power || 0);
 
-            allHistory.labels.push(currentTimeStr);
-            allHistory.voltage.push(totalVoltage || 0);
-            allHistory.current.push(current || 0);
-            allHistory.temp.push(temp1 || 0);
-            allHistory.power.push(power || 0);
+        if (allHistory.labels.length > MAX_HISTORY_LIMIT) {
+            allHistory.labels.shift();
+            allHistory.voltage.shift();
+            allHistory.current.shift();
+            allHistory.temp.shift();
+            allHistory.power.shift();
+        }
 
-            if (allHistory.labels.length > MAX_HISTORY_LIMIT) {
-                allHistory.labels.shift();
-                allHistory.voltage.shift();
-                allHistory.current.shift();
-                allHistory.temp.shift();
-                allHistory.power.shift();
+        updateDashboardChart(voltageChart, allHistory.labels, allHistory.voltage);
+        updateDashboardChart(currentChart, allHistory.labels, allHistory.current);
+        updateDashboardChart(tempChart, allHistory.labels, allHistory.temp);
+        updateDashboardChart(powerChart, allHistory.labels, allHistory.power);
+
+        const socEl = document.getElementById('soc-value');
+        const socAlertEl = document.getElementById('soc-alert');
+        if (soc !== null && !isNaN(soc)) {
+            if (socEl) socEl.innerHTML = `${Number(soc).toFixed(1)}<small>%</small>`;
+            const isLow = soc <= 20;
+            const gaugeColor = isLow ? '#ef4444' : '#22c55e';
+            if (socGauge) {
+                socGauge.data.datasets[0].backgroundColor = [gaugeColor, '#1e293b'];
+                socGauge.data.datasets[0].data = [soc, 100 - soc];
+                socGauge.update();
             }
+            if (socAlertEl) socAlertEl.style.display = isLow ? 'inline-flex' : 'none';
+        }
 
-            updateDashboardChart(voltageChart, allHistory.labels, allHistory.voltage);
-            updateDashboardChart(currentChart, allHistory.labels, allHistory.current);
-            updateDashboardChart(tempChart, allHistory.labels, allHistory.temp);
-            updateDashboardChart(powerChart, allHistory.labels, allHistory.power);
+        if (totalVoltage !== null && !isNaN(totalVoltage)) {
+            const el = document.getElementById('total-voltage-val');
+            if (el) el.innerHTML = `${Number(totalVoltage).toFixed(1)} <small>V</small>`;
+        }
+        if (current !== null && !isNaN(current)) {
+            const el = document.getElementById('current-val');
+            if (el) el.innerHTML = `${Number(current).toFixed(1)} <small>A</small>`;
+        }
+        if (capacity !== null && !isNaN(capacity)) {
+            const el = document.getElementById('capacity-val');
+            if (el) el.innerHTML = `${Number(capacity).toFixed(1)} <small>Ah</small>`;
+        }
+        if (power !== null && !isNaN(power)) {
+            const el = document.getElementById('power-val');
+            if (el) el.innerText = `${(power / 1000).toFixed(2)} kW`;
+        }
 
-            const socEl = document.getElementById('soc-value');
-            const socAlertEl = document.getElementById('soc-alert');
-            if (soc !== null && !isNaN(soc)) {
-                if (socEl) socEl.innerHTML = `${soc.toFixed(1)}<small>%</small>`;
-                const isLow = soc <= 20;
-                const gaugeColor = isLow ? '#ef4444' : '#22c55e';
-                if (socGauge) {
-                    socGauge.data.datasets[0].backgroundColor = [gaugeColor, '#1e293b'];
-                    socGauge.data.datasets[0].data = [soc, 100 - soc];
-                    socGauge.update();
-                }
-                if (socAlertEl) socAlertEl.style.display = isLow ? 'inline-flex' : 'none';
+        appendTelemetryRow(totalVoltage, current, power, soc, temp1);
+
+        const setInnerText = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.innerText = val;
+        };
+        if (maxV !== null && !isNaN(maxV)) setInnerText('max-v-val', `${Number(maxV).toFixed(3)} V`);
+        if (minV !== null && !isNaN(minV)) setInnerText('min-v-val', `${Number(minV).toFixed(3)} V`);
+        if (avgV !== null && !isNaN(avgV)) setInnerText('avg-v-val', `${Number(avgV).toFixed(3)} V`);
+        if (deltaV !== null && !isNaN(deltaV)) setInnerText('delta-v-val', `${Number(deltaV).toFixed(3)} V`);
+        if (cycles !== null && !isNaN(cycles)) setInnerText('cycles-val', `${cycles}`);
+
+        const updateSwitch = (statusElId, toggleElId, state) => {
+            const statusEl = document.getElementById(statusElId);
+            const toggleEl = document.getElementById(toggleElId);
+            if (statusEl && toggleEl && state !== null && state !== undefined) {
+                const isON = state === 'ON' || state === true || state === 1;
+                toggleEl.disabled = false;
+                toggleEl.checked = isON;
+                statusEl.innerText = isON ? 'ON' : 'OFF';
+                statusEl.className = isON ? 'text-green' : 'text-gray';
             }
+        };
+        updateSwitch('chg-mos-status', 'chg-mos-toggle', chgState);
+        updateSwitch('dischg-mos-status', 'dischg-mos-toggle', dischgState);
+        updateSwitch('balance-status', 'balance-toggle', balState);
+    }
 
-            if (totalVoltage !== null && !isNaN(totalVoltage)) {
-                const el = document.getElementById('total-voltage-val');
-                if (el) el.innerHTML = `${totalVoltage.toFixed(1)} <small>V</small>`;
+    function handleAlarmData(data) {
+        const alarmContainer = document.getElementById('alarm-container');
+        if (!alarmContainer) return;
+
+        if (!data) {
+            alarmContainer.innerHTML = `<div class="alarm-item text-green"><i class="fa-solid fa-circle-check"></i> System Normal (No Alarms)</div>`;
+            return;
+        }
+
+        const errorsText = data.errors || data.alarms || data;
+        if (Array.isArray(errorsText)) {
+            if (errorsText.length === 0) {
+                alarmContainer.innerHTML = `<div class="alarm-item text-green"><i class="fa-solid fa-circle-check"></i> System Normal (No Alarms)</div>`;
+            } else {
+                alarmContainer.innerHTML = errorsText.map(err => `<div class="alarm-item text-red"><i class="fa-solid fa-triangle-exclamation"></i> ${err}</div>`).join('');
             }
-            if (current !== null && !isNaN(current)) {
-                const el = document.getElementById('current-val');
-                if (el) el.innerHTML = `${current.toFixed(1)} <small>A</small>`;
-            }
-            if (capacity !== null && !isNaN(capacity)) {
-                const el = document.getElementById('capacity-val');
-                if (el) el.innerHTML = `${capacity.toFixed(1)} <small>Ah</small>`;
-            }
-            if (power !== null && !isNaN(power)) {
-                const el = document.getElementById('power-val');
-                if (el) el.innerText = `${(power / 1000).toFixed(2)} kW`;
-            }
-
-            appendTelemetryRow(totalVoltage, current, power, soc, temp1);
-
-            const setInnerText = (id, val) => {
-                const el = document.getElementById(id);
-                if (el) el.innerText = val;
-            };
-            if (maxV !== null && !isNaN(maxV)) setInnerText('max-v-val', `${maxV.toFixed(3)} V`);
-            if (minV !== null && !isNaN(minV)) setInnerText('min-v-val', `${minV.toFixed(3)} V`);
-            if (avgV !== null && !isNaN(avgV)) setInnerText('avg-v-val', `${avgV.toFixed(3)} V`);
-            if (deltaV !== null && !isNaN(deltaV)) setInnerText('delta-v-val', `${deltaV.toFixed(3)} V`);
-            if (cycles !== null && !isNaN(cycles)) setInnerText('cycles-val', `${cycles}`);
-
-            const updateSwitch = (statusElId, toggleElId, state) => {
-                const statusEl = document.getElementById(statusElId);
-                const toggleEl = document.getElementById(toggleElId);
-                if (statusEl && toggleEl && state !== null && state !== undefined) {
-                    const isON = state === 'ON' || state === true || state === 1;
-                    toggleEl.disabled = false;
-                    toggleEl.checked = isON;
-                    statusEl.innerText = isON ? 'ON' : 'OFF';
-                    statusEl.className = isON ? 'text-green' : 'text-gray';
-                }
-            };
-            updateSwitch('chg-mos-status', 'chg-mos-toggle', chgState);
-            updateSwitch('dischg-mos-status', 'dischg-mos-toggle', dischgState);
-            updateSwitch('balance-status', 'balance-toggle', balState);
-
-        } 
-        else if (topic.includes("cells")) {
-            const cells = data.cells || data.cell_voltages || [
-                data.cell_voltage_1, 
-                data.cell_voltage_2, 
-                data.cell_voltage_3, 
-                data.cell_voltage_4
-            ];
-            renderCellTable(cells);
-        } 
-        else if (topic.includes("alarms")) {
-            const alarmContainer = document.getElementById('alarm-container');
-            const errorsText = data.errors || data.alarms || "";
-            if (alarmContainer) {
-                if (Array.isArray(errorsText)) {
-                    if (errorsText.length === 0) {
-                        alarmContainer.innerHTML = `<div class="alarm-item text-green"><i class="fa-solid fa-circle-check"></i> System Normal (No Alarms)</div>`;
-                    } else {
-                        alarmContainer.innerHTML = errorsText.map(err => `<div class="alarm-item text-red"><i class="fa-solid fa-triangle-exclamation"></i> ${err}</div>`).join('');
-                    }
-                } else {
-                    if (errorsText === "" || errorsText === "OK" || errorsText === "[]") {
-                        alarmContainer.innerHTML = `<div class="alarm-item text-green"><i class="fa-solid fa-circle-check"></i> System Normal (No Alarms)</div>`;
-                    } else {
-                        alarmContainer.innerHTML = `<div class="alarm-item text-red"><i class="fa-solid fa-triangle-exclamation"></i> ${errorsText}</div>`;
-                    }
-                }
+        } else {
+            if (errorsText === "" || errorsText === "OK" || errorsText === "[]") {
+                alarmContainer.innerHTML = `<div class="alarm-item text-green"><i class="fa-solid fa-circle-check"></i> System Normal (No Alarms)</div>`;
+            } else {
+                alarmContainer.innerHTML = `<div class="alarm-item text-red"><i class="fa-solid fa-triangle-exclamation"></i> ${errorsText}</div>`;
             }
         }
     }
 
     // --------------------------------------
-    // 9. Settings Handler (MQTT Broker & Interval Config)
+    // 9. Settings Handler (Interval Config)
     // --------------------------------------
-    const inputEspHost = document.getElementById('setting-host') || document.getElementById('setting-broker') || document.querySelector('#page-settings input[type="text"], #page-settings input:not([type="number"])');
     const inputFetchInterval = document.getElementById('setting-interval');
     const btnSaveSettings = document.getElementById('btn-save-settings');
 
-    if (inputEspHost) inputEspHost.value = MQTT_BROKER;
     if (inputFetchInterval) inputFetchInterval.value = FETCH_INTERVAL;
 
     if (btnSaveSettings) {
         btnSaveSettings.addEventListener('click', () => {
-            const newHost = inputEspHost ? inputEspHost.value.trim() : "";
             const newIntervalVal = inputFetchInterval ? parseInt(inputFetchInterval.value) : NaN;
-
-            if (!newHost) {
-                alert('Host/Broker MQTT tidak boleh kosong!');
-                return;
-            }
 
             if (isNaN(newIntervalVal) || newIntervalVal <= 0) {
                 alert('Fetch Interval harus berupa angka milidetik yang valid (contoh: 3000)!');
                 return;
             }
 
-            localStorage.setItem('mqtt_broker', newHost);
-            localStorage.setItem('mqtt_interval', newIntervalVal);
+            localStorage.setItem('db_interval', newIntervalVal);
 
             alert('Pengaturan berhasil disimpan! Halaman akan memuat ulang.');
             location.reload();
         });
     }
 
-    initMQTTConnection();
+    // Memulai koneksi listener Firebase Realtime Database
+    initFirebaseListeners();
 });
